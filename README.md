@@ -1,4 +1,4 @@
-# OffGrid AI
+# OffGrid UI
 
 OffGrid AI is a private, local, and secure AI assistant application built with Streamlit and the Ollama AI model. It allows you to have natural language conversations with an AI model running locally on your machine, ensuring your data stays private and offline.
 
