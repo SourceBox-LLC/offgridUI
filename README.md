@@ -1,4 +1,4 @@
-# AI Chatbot Assistant
+# Offgrid UI
 
 A beautiful and feature-rich AI chatbot assistant built with Streamlit and powered by OpenAI's API.
 
