@@ -233,12 +233,14 @@ if "offgrid" not in st.session_state:
 col1, col2, col3 = st.columns([1, 3, 1])
 
 with col2:
-    st.markdown("<h1 class='title'>AI Assistant</h1>", unsafe_allow_html=True)
+    # Change title based on offgrid status
+    status = "Online" if st.session_state.offgrid else "Offline"
+    st.markdown(f"<h1 class='title'>Status: {status}</h1>", unsafe_allow_html=True)
     st.markdown("<p class='subtitle'>Your intelligent chat companion</p>", unsafe_allow_html=True)
 
 # Sidebar for settings
 with st.sidebar:
-    st.markdown("<h2 style='color: #cba6f7;'>Settings</h2>", unsafe_allow_html=True)
+    st.image("images/offgridui_logo.png")
     on = st.toggle("Go offgrid")
 
     #toggle on and offgrid via session state
@@ -433,68 +435,66 @@ with st.container():
         # Get the current conversation ID
         conversation_id = st.session_state.current_conversation_id
         
-        # Only store image data for actual images, not documents
-        image_data = None
-        
-        # If there's an uploaded file, add information about it to the prompt
-        user_message = prompt
-        if uploaded_file:
-            file_name = uploaded_file.name
-            user_message = f"[File attached: {file_name}]\n\n{prompt}"
-        
-        # Save user message to database without attaching the file
-        db.save_message("user", user_message, conversation_id, image_data)
-        
-        # Check if API key is provided
-        if st.session_state.api_key:
-            try:
-                # Display a spinner while waiting for the response
-                with st.spinner("AI is thinking..."):
-                    # Get previous messages in the conversation for context
-                    previous_messages = db.get_conversation_messages(conversation_id)
-                    
-                    # Format messages for the OpenAI API format
-                    conversation_history = []
-                    for msg in previous_messages:
-                        # Skip the current message which we already added
-                        if msg["role"] == "user" and msg["content"] == user_message:
-                            continue
+        try:
+            # Display a spinner while waiting for the response
+            with st.spinner("AI is thinking..."):
+                # Only store image data for actual images, not documents
+                image_data = None
+                
+                # If there's an uploaded file, add information about it to the prompt
+                user_message = prompt
+                if uploaded_file:
+                    file_name = uploaded_file.name
+                    user_message = f"[File attached: {file_name}]\n\n{prompt}"
+                
+                # Save user message to database without attaching the file
+                db.save_message("user", user_message, conversation_id, image_data)
+                
+                # Get previous messages in the conversation for context
+                previous_messages = db.get_conversation_messages(conversation_id)
+                
+                # Format messages for the OpenAI API format
+                conversation_history = []
+                for msg in previous_messages:
+                    # Skip the current message which we already added
+                    if msg["role"] == "user" and msg["content"] == user_message:
+                        continue
+                        
+                    # Format message for the API
+                    conversation_history.append({
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    })
+                
+                # Create a prompt that includes image description if present
+                llm_prompt = prompt
+                if uploaded_file:
+                    # Read file contents based on file type
+                    file_content = ""
+                    file_type = uploaded_file.type
+                    try:
+                        if file_type == "text/plain" or uploaded_file.name.endswith(".txt"):
+                            # For text files
+                            file_content = uploaded_file.getvalue().decode("utf-8")
+                        elif file_type == "application/pdf" or uploaded_file.name.endswith(".pdf"):
+                            # For PDF files - requires PyPDF2
+                            import PyPDF2
+                            from io import BytesIO
                             
-                        # Format message for the API
-                        conversation_history.append({
-                            "role": msg["role"],
-                            "content": msg["content"]
-                        })
-                    
-                    # Create a prompt that includes image description if present
-                    llm_prompt = prompt
-                    if uploaded_file:
-                        # Read file contents based on file type
-                        file_content = ""
-                        file_type = uploaded_file.type
-                        try:
-                            if file_type == "text/plain" or uploaded_file.name.endswith(".txt"):
-                                # For text files
-                                file_content = uploaded_file.getvalue().decode("utf-8")
-                            elif file_type == "application/pdf" or uploaded_file.name.endswith(".pdf"):
-                                # For PDF files - requires PyPDF2
-                                import PyPDF2
-                                from io import BytesIO
+                            print(f"Processing PDF file: {uploaded_file.name}, Size: {len(uploaded_file.getvalue())} bytes")
+                            try:
+                                pdf_file = BytesIO(uploaded_file.getvalue())
+                                pdf_reader = PyPDF2.PdfReader(pdf_file)
                                 
-                                print(f"Processing PDF file: {uploaded_file.name}, Size: {len(uploaded_file.getvalue())} bytes")
-                                try:
-                                    pdf_file = BytesIO(uploaded_file.getvalue())
-                                    pdf_reader = PyPDF2.PdfReader(pdf_file)
-                                    
-                                    # Check if the PDF has any pages
-                                    if len(pdf_reader.pages) == 0:
-                                        file_content = "[PDF appears to be empty or corrupted]"
-                                    else:
-                                        # Extract text from each page
-                                        for page_num in range(len(pdf_reader.pages)):
-                                            page_text = pdf_reader.pages[page_num].extract_text()
-                                            if page_text.strip():  # Check if extracted text is not empty
-                                                file_content += f"--- Page {page_num + 1} ---\n{page_text}\n\n"
+                                # Check if the PDF has any pages
+                                if len(pdf_reader.pages) == 0:
+                                    file_content = "[PDF appears to be empty or corrupted]"
+                                else:
+                                    # Extract text from each page
+                                    for page_num in range(len(pdf_reader.pages)):
+                                        page_text = pdf_reader.pages[page_num].extract_text()
+                                        if page_text.strip():  # Check if extracted text is not empty
+                                            file_content += f"--- Page {page_num + 1} ---\n{page_text}\n\n"
                                         
                                         # If no text was extracted (possibly a scanned/image PDF)
                                         if not file_content.strip():
@@ -510,45 +510,45 @@ with st.container():
                                                 file_content = f"[This appears to be a scanned or image-based PDF without extractable text. PDF Metadata:\n{metadata}\n\nConsider using an OCR tool to extract text from the PDF before uploading.]"
                                             else:
                                                 file_content = "[This appears to be a scanned or image-based PDF without extractable text. Consider using an OCR tool to extract text from the PDF before uploading.]"
-                                except Exception as pdf_error:
-                                    print(f"PDF extraction error: {str(pdf_error)}")
-                                    # Try to get basic information about the PDF
-                                    try:
-                                        file_size = len(uploaded_file.getvalue())
-                                        file_content = f"[Error extracting PDF content: {str(pdf_error)}. File size: {file_size} bytes. The PDF might be password-protected, corrupted, or in an unsupported format.]"
-                                    except:
-                                        file_content = f"[Error extracting PDF content: {str(pdf_error)}]"
-                            elif file_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                             "application/vnd.ms-excel"] or uploaded_file.name.endswith((".xlsx", ".xls")):
-                                # For Excel files - requires pandas
-                                import pandas as pd
-                                df = pd.read_excel(uploaded_file)
-                                file_content = df.to_string()
-                            elif file_type == "text/csv" or uploaded_file.name.endswith(".csv"):
-                                # For CSV files - requires pandas
-                                import pandas as pd
-                                df = pd.read_csv(uploaded_file)
-                                file_content = df.to_string()
-                            elif file_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                           "application/msword"] or uploaded_file.name.endswith((".docx", ".doc")):
-                                # For Word files - requires python-docx
-                                import docx
-                                from io import BytesIO
-                                doc = docx.Document(BytesIO(uploaded_file.getvalue()))
-                                file_content = "\n".join([para.text for para in doc.paragraphs])
-                            else:
-                                # For other file types, try to read as text or inform user
+                            except Exception as pdf_error:
+                                print(f"PDF extraction error: {str(pdf_error)}")
+                                # Try to get basic information about the PDF
                                 try:
-                                    file_content = uploaded_file.getvalue().decode("utf-8")
-                                except UnicodeDecodeError:
-                                    file_content = "[File content could not be extracted. Unsupported file type.]"
+                                    file_size = len(uploaded_file.getvalue())
+                                    file_content = f"[Error extracting PDF content: {str(pdf_error)}. File size: {file_size} bytes. The PDF might be password-protected, corrupted, or in an unsupported format.]"
+                                except:
+                                    file_content = f"[Error extracting PDF content: {str(pdf_error)}]"
+                        elif file_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                         "application/vnd.ms-excel"] or uploaded_file.name.endswith((".xlsx", ".xls")):
+                            # For Excel files - requires pandas
+                            import pandas as pd
+                            df = pd.read_excel(uploaded_file)
+                            file_content = df.to_string()
+                        elif file_type == "text/csv" or uploaded_file.name.endswith(".csv"):
+                            # For CSV files - requires pandas
+                            import pandas as pd
+                            df = pd.read_csv(uploaded_file)
+                            file_content = df.to_string()
+                        elif file_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                       "application/msword"] or uploaded_file.name.endswith((".docx", ".doc")):
+                            # For Word files - requires python-docx
+                            import docx
+                            from io import BytesIO
+                            doc = docx.Document(BytesIO(uploaded_file.getvalue()))
+                            file_content = "\n".join([para.text for para in doc.paragraphs])
+                        else:
+                            # For other file types, try to read as text or inform user
+                            try:
+                                file_content = uploaded_file.getvalue().decode("utf-8")
+                            except UnicodeDecodeError:
+                                file_content = "[File content could not be extracted. Unsupported file type.]"
+                        
+                        # Limit content length to avoid overwhelming the models
+                        if len(file_content) > 10000:
+                            file_content = file_content[:10000] + "\n[Content truncated due to length...]"
                             
-                            # Limit content length to avoid overwhelming the models
-                            if len(file_content) > 10000:
-                                file_content = file_content[:10000] + "\n[Content truncated due to length...]"
-                                
-                            # Create the enhanced prompt with file content
-                            llm_prompt = f"""The user has uploaded a file with the following content:
+                        # Create the enhanced prompt with file content
+                        llm_prompt = f"""The user has uploaded a file with the following content:
 
 FILE CONTENT:
 {file_content}
@@ -557,43 +557,65 @@ USER QUERY:
 {prompt}
 
 Please respond to the user's query based on the file content."""
-                        except Exception as e:
-                            llm_prompt = f"The user has uploaded a file, but I couldn't extract its contents due to error: {str(e)}. User's message: {prompt}"
-                    
-                    # Call the LLM with conversation history for context
-                    if st.session_state.offgrid == False:
-                        if st.session_state.model == "o3-mini":
-                            response = call_openai_llm(
-                                llm_prompt, 
-                                st.session_state.api_key,
-                                conversation_history=conversation_history
-                            )
-                        elif st.session_state.model == "replicate":
-                            response = call_replicate_model(
-                                llm_prompt,
-                                api_key=st.session_state.api_key,
-                                model_id=st.session_state.replicate_model_id,
-                                conversation_history=conversation_history
-                            )
-                    else:
+                    except Exception as e:
+                        llm_prompt = f"The user has uploaded a file, but I couldn't extract its contents due to error: {str(e)}. User's message: {prompt}"
+                
+                # Modified logic to handle Ollama separately
+                if st.session_state.offgrid:
+                    try:
+                        st.info("Connecting to local Ollama server...")
                         response = call_ollama_llm(
                             llm_prompt, 
                             conversation_history=conversation_history
                         )
-                    
-                    # Save assistant's response to database
-                    db.save_message("assistant", response, conversation_id)
-                    
-                    # Rerun to update the UI with the new message
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-        else:
-            if st.session_state.model == "o3-mini":
-                st.warning("Please enter your OpenAI API key in the sidebar to get AI responses.")
-            elif st.session_state.model == "replicate":
-                st.warning("Please enter your Replicate API key in the sidebar to get AI responses.")
-            else:
-                st.warning("Please select a model and enter the appropriate API key in the sidebar.")
-            st.rerun()
+                        if response:
+                            # Save assistant's response to database
+                            db.save_message("assistant", response, conversation_id)
+                            st.rerun()
+                        else:
+                            st.error("""No response from Ollama. Please check:
+1. Ollama is installed (https://ollama.com/download)
+2. Ollama service is running
+3. The model exists locally (run 'ollama pull modelname')""")
+                            st.stop()
+                    except Exception as e:
+                        st.error(f"""Error connecting to Ollama: {str(e)}
+                        
+Please verify:
+1. Ollama is installed and running
+2. Model '{st.session_state.get('model_option', 'deepseek-r1')}' is downloaded
+3. Ollama is accessible at http://localhost:11434""")
+                        st.stop()
+                else:
+                    # Online models (OpenAI/Replicate) - check for API key
+                    if st.session_state.api_key:
+                        try:
+                            if st.session_state.model == "o3-mini":
+                                response = call_openai_llm(
+                                    llm_prompt, 
+                                    st.session_state.api_key,
+                                    conversation_history=conversation_history
+                                )
+                            elif st.session_state.model == "replicate":
+                                response = call_replicate_model(
+                                    llm_prompt,
+                                    api_key=st.session_state.api_key,
+                                    model_id=st.session_state.replicate_model_id,
+                                    conversation_history=conversation_history
+                                )
+                            
+                            # Save assistant's response to database
+                            db.save_message("assistant", response, conversation_id)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
+                    else:
+                        if st.session_state.model == "o3-mini":
+                            st.warning("Please enter your OpenAI API key in the sidebar.")
+                        elif st.session_state.model == "replicate":
+                            st.warning("Please enter your Replicate API key in the sidebar.")
+                        st.stop()
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+            st.stop()
 
